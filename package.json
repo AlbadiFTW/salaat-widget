@@ -1,0 +1,65 @@
+{
+  "name": "salaat-widget",
+  "version": "1.2.0",
+  "description": "Islamic Prayer Times Widget for Windows",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "generate-icon": "node scripts/generate-icon.js",
+    "prebuild": "npm run generate-icon",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:portable": "electron-builder --win portable",
+    "build:installer": "electron-builder --win nsis"
+  },
+  "author": "Abdulrahman",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/YOUR_USERNAME/salaat-widget.git"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "png-to-ico": "^3.0.1",
+    "rcedit": "^4.0.1"
+  },
+  "build": {
+    "appId": "com.salaat.widget",
+    "productName": "Salaat Widget",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "icons/**/*",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/.cache"
+    ],
+    "asarUnpack": [
+      "icons/**/*"
+    ],
+    "win": {
+      "target": [
+        "portable",
+        "nsis"
+      ],
+      "icon": "icons/salaat-icon.ico",
+      "signAndEditExecutable": false,
+      "sign": "scripts/sign.js"
+    },
+    "afterPack": "scripts/patch-exe.js",
+    "afterSign": "scripts/patch-exe.js",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "icons/salaat-icon.ico",
+      "uninstallerIcon": "icons/salaat-icon.ico",
+      "installerHeaderIcon": "icons/salaat-icon.ico"
+    }
+  }
+}

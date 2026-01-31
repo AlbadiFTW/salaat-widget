@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Salaat Widget</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --accent: #d4a574;
+      --bg: rgba(20, 20, 22, 0.97);
+      --bg-trans: rgba(20, 20, 22, 0.55);
+      --bg-card: rgba(45, 45, 50, 0.9);
+      --text: #fff;
+      --text-dim: rgba(255,255,255,0.5);
+      --border: rgba(255,255,255,0.1);
+      --compact-bg-alpha: 1;
+    }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: transparent; color: var(--text); user-select: none; }
+    .arabic { font-family: 'Scheherazade New', 'Traditional Arabic', serif; }
+    .hidden { display: none !important; }
+
+    /* ===== COMPACT BAR ===== */
+    #compact {
+      display: flex; align-items: center; gap: 20px;
+      padding: 10px 14px; height: 48px;
+      background: var(--bg); border-radius: 12px;
+      border: 1px solid var(--border);
+      position: relative;
+      transform: translateZ(0);
+      will-change: transform;
+    }
+    #compact.with-panel { border-radius: 0 0 12px 12px; }
+    /* Collapsed only: transparent black tint; text/icon/time stay opaque */
+    #compact:not(.with-panel):not(.entered):not(.urgent) {
+      background: rgba(20, 20, 22, var(--compact-bg-alpha));
+      backdrop-filter: blur(10px);
+    }
+    #compact.entered { background: rgba(251, 191, 36, 0.25); border-color: rgba(251, 191, 36, 0.5); }
+    #compact.urgent { background: rgba(248, 113, 113, 0.25); border-color: rgba(248, 113, 113, 0.5); }
+    #compact .click-zone { position: absolute; top: 0; left: 0; right: 0; bottom: 0; cursor: pointer; z-index: 1; -webkit-app-region: no-drag; }
+    .c-info { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; pointer-events: none; text-align: center; }
+    .c-info-top { display: flex; align-items: center; justify-content: center; gap: 5px; }
+    .c-name { font-weight: 600; font-size: 13px; }
+    .c-name-ar { font-size: 11px; color: var(--text-dim); }
+    .c-time { font-size: 15px; font-weight: 600; color: var(--accent); }
+    .c-countdown { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; pointer-events: none; }
+    .c-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+    .c-timer { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    #compact.entered .c-timer { color: #fbbf24; }
+    #compact.urgent .c-timer { color: #f87171; }
+    .c-btn { width: 32px; height: 32px; background: rgba(255,255,255,0.1); border: none; border-radius: 8px; color: var(--text); cursor: pointer; font-size: 12px; z-index: 5; }
+    .c-stop-adhan { display: none; align-items: center; gap: 6px; padding: 4px 10px; background: rgba(248,113,113,0.25); border: 1px solid rgba(248,113,113,0.5); border-radius: 8px; color: #f87171; font-size: 12px; font-weight: 600; cursor: pointer; z-index: 5; -webkit-app-region: no-drag; }
+    .c-stop-adhan.visible { display: flex; }
+    .c-btn:hover { background: rgba(255,255,255,0.2); }
+
+    /* ===== EXPANDED PANEL ===== */
+    #panel {
+      display: none; flex-direction: column; flex: 1;
+      background: var(--bg); border-radius: 12px 12px 0 0;
+      border: 1px solid var(--border); border-bottom: none;
+    }
+    #panel.active { display: flex; }
+    .p-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      -webkit-app-region: drag;
+    }
+    .p-header-info h2 { font-size: 15px; }
+    .p-header-info .hijri { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+    .p-header-info .loc { font-size: 10px; color: var(--text-dim); }
+    .p-header-btns { display: flex; gap: 6px; -webkit-app-region: no-drag; }
+    .p-btn { width: 32px; height: 32px; background: rgba(255,255,255,0.06); border: none; border-radius: 8px; color: var(--text-dim); cursor: pointer; font-size: 14px; }
+    .p-btn:hover { background: rgba(255,255,255,0.12); color: var(--text); }
+    .p-btn.close:hover { color: #f87171; }
+
+    .prayer-list { flex: 1; padding: 10px 12px; overflow: hidden; }
+    .prayer-row {
+      display: flex; align-items: center; padding: 12px 14px;
+      border-radius: 10px; margin-bottom: 4px; border: 1px solid transparent;
+    }
+    .prayer-row.passed { opacity: 0.4; }
+    .prayer-row.next { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); }
+    .prayer-row.entered { background: rgba(251,191,36,0.15); border-color: rgba(251,191,36,0.3); }
+    .prayer-row.urgent { background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.3); }
+    .prayer-row.near { background: rgba(96,165,250,0.1); border-color: rgba(96,165,250,0.25); }
+    .pr-icon { width: 30px; font-size: 16px; }
+    .pr-info { flex: 1; }
+    .pr-name { font-size: 15px; font-weight: 500; }
+    .pr-name-ar { font-size: 11px; color: var(--text-dim); }
+    .pr-time { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .prayer-row.next .pr-time { color: var(--accent); }
+    .prayer-row.entered .pr-time { color: #fbbf24; }
+    .prayer-row.urgent .pr-time { color: #f87171; }
+    .pr-elapsed { font-size: 10px; color: #fbbf24; margin-top: 2px; }
+    .prayer-row.urgent .pr-elapsed { color: #f87171; }
+
+    .quran-box { padding: 14px 16px; text-align: center; border-top: 1px solid var(--border); background: rgba(212,165,116,0.04); }
+    .quran-text { font-size: 27px; line-height: 1.85; color: var(--accent); }
+
+    /* ===== SETTINGS ===== */
+    #settings {
+      display: none; flex-direction: column; height: 100%; min-height: 600px;
+      background: var(--bg); border-radius: 12px; border: 1px solid var(--border);
+    }
+    #settings.active { display: flex; }
+    .s-header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+      -webkit-app-region: drag;
+    }
+    .s-header h1 { font-size: 20px; }
+    .s-close { width: 38px; height: 38px; background: rgba(255,255,255,0.08); border: none; border-radius: 10px; color: var(--text); cursor: pointer; font-size: 18px; -webkit-app-region: no-drag; }
+    .s-close:hover { background: rgba(255,255,255,0.15); }
+
+    .s-nav { display: flex; gap: 6px; padding: 14px 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+    .s-nav-btn { padding: 10px 14px; background: none; border: none; color: var(--text-dim); font-size: 13px; cursor: pointer; border-radius: 8px; white-space: nowrap; }
+    .s-nav-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+    .s-nav-btn.active { background: var(--accent); color: #000; font-weight: 600; }
+
+    .s-body { flex: 1; padding: 20px; overflow-y: auto; min-height: 420px; }
+    .s-page { display: none; }
+    .s-page.active { display: block; }
+    .s-group { margin-bottom: 24px; }
+    .s-group-title { font-size: 12px; color: var(--accent); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 14px; font-weight: 600; }
+    .s-hint-block { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 14px; padding: 10px 12px; background: rgba(255,255,255,0.04); border-radius: 8px; border: 1px solid var(--border); }
+    .s-row { display: flex; align-items: center; justify-content: space-between; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .s-row:last-child { border-bottom: none; }
+    .s-row label { font-size: 14px; }
+    .s-row .hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+
+    .s-input { width: 100%; padding: 14px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 14px; margin-top: 10px; }
+    .s-input:focus { outline: none; border-color: var(--accent); }
+    .s-select { padding: 12px 16px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 14px; cursor: pointer; min-width: 150px; }
+    .s-number { width: 75px; padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; color: var(--text); font-size: 14px; text-align: center; }
+
+    .toggle { width: 52px; height: 30px; background: #4b5563; border-radius: 15px; position: relative; cursor: pointer; flex-shrink: 0; }
+    .toggle.on { background: var(--accent); }
+    .toggle::after { content: ''; width: 24px; height: 24px; background: #fff; border-radius: 12px; position: absolute; top: 3px; left: 3px; transition: transform 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .toggle.on::after { transform: translateX(22px); }
+
+    .color-grid { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .color-opt { width: 40px; height: 40px; border-radius: 20px; border: 3px solid transparent; cursor: pointer; }
+    .color-opt:hover { transform: scale(1.1); }
+    .color-opt.sel { border-color: #fff; }
+
+    .btn-primary { width: 100%; padding: 14px 20px; background: var(--accent); border: none; border-radius: 10px; color: #000; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .btn-primary.btn-small { width: auto; padding: 8px 16px; font-size: 13px; }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.5; }
+
+    .adj-ctrl { display: flex; align-items: center; gap: 10px; }
+    .adj-btn { width: 36px; height: 36px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; color: var(--text); cursor: pointer; font-size: 18px; }
+    .adj-btn:hover { background: rgba(255,255,255,0.1); }
+    .adj-val { width: 55px; text-align: center; font-size: 15px; font-weight: 500; }
+
+    .s-slider-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .s-slider-row:last-child { border-bottom: none; }
+    .s-slider-label { flex: 1; min-width: 0; }
+    .s-slider-row label { font-size: 14px; }
+    .s-slider-row .hint { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+    input[type="range"].transparency-slider { flex: 1; min-width: 120px; height: 8px; -webkit-appearance: none; appearance: none; background: var(--bg-card); border-radius: 4px; }
+    input[type="range"].transparency-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 20px; height: 20px; background: var(--accent); border-radius: 10px; cursor: pointer; }
+    .transparency-value { min-width: 42px; text-align: right; font-size: 14px; font-weight: 500; color: var(--accent); }
+
+    .adhan-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; }
+    .adhan-row input[type="radio"] { width: 20px; height: 20px; accent-color: var(--accent); }
+    .adhan-row span { flex: 1; font-size: 14px; }
+    .adhan-preview { padding: 8px 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); cursor: pointer; font-size: 12px; }
+    .adhan-preview:hover { background: rgba(255,255,255,0.1); color: var(--text); }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+
+    #settings[dir="rtl"] { text-align: right; font-family: 'Segoe UI', 'Segoe UI Arabic', system-ui, sans-serif; }
+    #settings[dir="rtl"] .s-header h1 { font-size: 22px; }
+    #settings[dir="rtl"] .s-nav-btn { font-size: 14px; }
+    #settings[dir="rtl"] .s-group-title { font-size: 13px; }
+    #settings[dir="rtl"] .s-row label, #settings[dir="rtl"] .s-slider-row label { font-size: 15px; }
+    #settings[dir="rtl"] .s-hint-block { font-size: 13px; }
+    #settings[dir="rtl"] .s-row .hint, #settings[dir="rtl"] .s-slider-row .hint { font-size: 12px; }
+    #settings[dir="rtl"] .s-input, #settings[dir="rtl"] .s-select, #settings[dir="rtl"] .s-number { font-size: 15px; }
+    #settings[dir="rtl"] .s-input, #settings[dir="rtl"] .s-number { direction: ltr; text-align: left; }
+    #settings[dir="rtl"] .btn-primary { font-size: 16px; }
+    #settings[dir="rtl"] .adhan-row span, #settings[dir="rtl"] .adhan-preview { font-size: 14px; }
+    #settings[dir="rtl"] .transparency-value { font-size: 15px; }
+    #settings[dir="rtl"] .adj-val { font-size: 16px; }
+
+    .widget { display: flex; flex-direction: column; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div class="widget" id="widget">
+    <!-- Expanded Panel -->
+    <div id="panel">
+      <div class="p-header">
+        <div class="p-header-info">
+          <h2 id="day-name">Wednesday</h2>
+          <div class="hijri" id="hijri-date">9 Sha'ban 1447</div>
+          <div class="loc" id="location">Al Ain, UAE</div>
+        </div>
+        <div class="p-header-btns">
+          <button class="p-btn" id="btn-lang">ع</button>
+          <button class="p-btn" id="btn-settings">⚙</button>
+          <button class="p-btn close" id="btn-hide">✕</button>
+        </div>
+      </div>
+      <div class="prayer-list" id="prayer-list"></div>
+      <div class="quran-box">
+        <div class="quran-text arabic">إِنَّ الصَّلَاةَ كَانَتْ عَلَى الْمُؤْمِنِينَ كِتَابًا مَّوْقُوتًا</div>
+      </div>
+    </div>
+
+    <!-- Compact Bar: click to expand, drag anywhere to move -->
+    <div id="compact">
+      <div class="click-zone" id="click-zone"></div>
+      <div class="c-info">
+        <div class="c-info-top">
+          <span class="c-name" id="c-name">Fajr</span>
+          <span class="c-name-ar arabic" id="c-name-ar">الفجر</span>
+        </div>
+        <span class="c-time" id="c-time">05:40</span>
+      </div>
+      <div class="c-countdown">
+        <div class="c-label" id="c-label">IN</div>
+        <div class="c-timer" id="c-timer">00:49:13</div>
+      </div>
+      <button class="c-stop-adhan" id="btn-stop-adhan" data-i18n="stop_adhan" title="Stop adhan">⏹ Stop</button>
+    </div>
+
+    <!-- Settings -->
+    <div id="settings">
+      <div class="s-header">
+        <h1 data-i18n="settings_title">Settings</h1>
+        <button class="s-close" id="s-close">✕</button>
+      </div>
+      <div class="s-nav">
+        <button class="s-nav-btn active" data-page="loc" data-i18n="nav_loc">📍 Location</button>
+        <button class="s-nav-btn" data-page="calc" data-i18n="nav_calc">🧮 Calculation</button>
+        <button class="s-nav-btn" data-page="notif" data-i18n="nav_notif">🔔 Notifications</button>
+        <button class="s-nav-btn" data-page="look" data-i18n="nav_look">🎨 Appearance</button>
+        <button class="s-nav-btn" data-page="gen" data-i18n="nav_gen">⚙ General</button>
+      </div>
+      <div class="s-body">
+        <div class="s-page active" id="page-loc">
+          <div class="s-group">
+            <p class="s-hint-block" data-i18n="loc_hint">On Windows: enable <strong>Location services</strong> and <strong>Let desktop apps access your location</strong> in Settings → Privacy &amp; security → Location for GPS. Otherwise IP-based location is used.</p>
+            <button class="btn-primary" id="btn-detect" data-i18n="detect_btn">📍 Detect My Location</button>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="manual_entry">Manual Entry</div>
+            <div><label data-i18n="city">City</label><input type="text" class="s-input" id="in-city" value="Al Ain"></div>
+            <div style="margin-top:14px"><label data-i18n="country">Country</label><input type="text" class="s-input" id="in-country" value="UAE"></div>
+            <div style="display:flex;gap:14px;margin-top:14px">
+              <div style="flex:1"><label data-i18n="lat">Latitude</label><input type="number" step="0.0001" class="s-input" id="in-lat" value="24.1917"></div>
+              <div style="flex:1"><label data-i18n="lng">Longitude</label><input type="number" step="0.0001" class="s-input" id="in-lng" value="55.7606"></div>
+            </div>
+            <div style="margin-top:14px"><label data-i18n="tz">Timezone</label><input type="text" class="s-input" id="in-tz" value="Asia/Dubai"></div>
+          </div>
+        </div>
+
+        <div class="s-page" id="page-calc">
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="calc_method">Method</div>
+            <div class="s-row">
+              <div><label data-i18n="calc_method_label">Calculation Method</label><div class="hint" data-i18n="calc_method_hint">Based on your region</div></div>
+              <select class="s-select" id="in-method">
+                <option value="MWL" data-i18n="method_mwl">Muslim World League</option>
+                <option value="ISNA" data-i18n="method_isna">ISNA</option>
+                <option value="Egypt" data-i18n="method_egypt">Egyptian</option>
+                <option value="Makkah" data-i18n="method_makkah">Umm al-Qura</option>
+                <option value="Karachi" data-i18n="method_karachi">Karachi</option>
+                <option value="Dubai" selected data-i18n="method_dubai">Dubai (UAE)</option>
+                <option value="Kuwait" data-i18n="method_kuwait">Kuwait</option>
+                <option value="Qatar" data-i18n="method_qatar">Qatar</option>
+                <option value="Singapore" data-i18n="method_singapore">Singapore</option>
+                <option value="Turkey" data-i18n="method_turkey">Turkey</option>
+              </select>
+            </div>
+            <div class="s-row">
+              <div><label data-i18n="asr_label">Asr Calculation</label><div class="hint" data-i18n="asr_hint">Juristic method</div></div>
+              <select class="s-select" id="in-asr">
+                <option value="Standard" data-i18n="asr_standard">Standard (Shafi'i)</option>
+                <option value="Hanafi" data-i18n="asr_hanafi">Hanafi</option>
+              </select>
+            </div>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="time_adj">Time Adjustments (± minutes)</div>
+            <div id="adj-container"></div>
+          </div>
+        </div>
+
+        <div class="s-page" id="page-notif">
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="notif_alerts">Alerts</div>
+            <div class="s-row">
+              <label data-i18n="enable_notif">Enable Notifications</label>
+              <div class="toggle on" id="tog-notif"></div>
+            </div>
+            <div class="s-row">
+              <div><label data-i18n="reminder_before">Reminder Before</label><div class="hint" data-i18n="reminder_hint">Minutes before prayer</div></div>
+              <input type="number" class="s-number" id="in-reminder" value="10" min="0" max="60">
+            </div>
+            <div class="s-row">
+              <div><label data-i18n="show_elapsed">Show Elapsed</label><div class="hint" data-i18n="elapsed_hint">Minutes to show elapsed time</div></div>
+              <input type="number" class="s-number" id="in-elapsed" value="30" min="5" max="120">
+            </div>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="reminder_sound">Reminder Sound (close to prayer)</div>
+            <div class="s-row">
+              <label data-i18n="reminder_sound_enable">Play sound when reminder fires</label>
+              <div class="toggle on" id="tog-reminder-sound"></div>
+            </div>
+            <div class="s-row">
+              <div><label data-i18n="reminder_sound_pick">Sound</label></div>
+              <select class="s-select" id="in-reminder-sound">
+                <option value="chime">Chime</option>
+                <option value="bell">Bell</option>
+                <option value="beep">Beep</option>
+                <option value="none" data-i18n="sound_none">None</option>
+                <option value="custom" data-i18n="adhan_custom">Custom</option>
+              </select>
+            </div>
+            <button class="btn-primary btn-small" id="btn-custom-reminder" data-i18n="choose_adhan" style="margin-top:8px;display:none">📁 Choose Custom</button>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="elapsed_sound">Elapsed Sound (after prayer time)</div>
+            <div class="s-row">
+              <label data-i18n="elapsed_sound_enable">Play sound when elapsed reminder fires</label>
+              <div class="toggle on" id="tog-elapsed-sound"></div>
+            </div>
+            <div class="s-row">
+              <div><label data-i18n="elapsed_sound_pick">Sound</label></div>
+              <select class="s-select" id="in-elapsed-sound">
+                <option value="chime">Chime</option>
+                <option value="bell">Bell</option>
+                <option value="beep">Beep</option>
+                <option value="none" data-i18n="sound_none">None</option>
+                <option value="custom" data-i18n="adhan_custom">Custom</option>
+              </select>
+            </div>
+            <button class="btn-primary btn-small" id="btn-custom-elapsed" data-i18n="choose_adhan" style="margin-top:8px;display:none">📁 Choose Custom</button>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="adhan_sound">Adhan Sound</div>
+            <div class="s-row">
+              <label data-i18n="play_adhan">Play Adhan at Prayer Time</label>
+              <div class="toggle" id="tog-adhan"></div>
+            </div>
+            <div id="adhan-list"></div>
+            <button class="btn-primary" id="btn-custom-adhan" style="margin-top:14px" data-i18n="choose_adhan">📁 Choose Custom Audio</button>
+          </div>
+        </div>
+
+        <div class="s-page" id="page-look">
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="look_theme">Theme</div>
+            <div><label data-i18n="accent_color">Accent Color</label><div class="color-grid" id="color-grid"></div></div>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="display">Display</div>
+            <div class="s-row"><label data-i18n="format_24h">24-Hour Format</label><div class="toggle on" id="tog-24h"></div></div>
+            <div class="s-row"><label data-i18n="show_sec">Show Seconds</label><div class="toggle on" id="tog-sec"></div></div>
+            <div class="s-row"><label data-i18n="arabic_ui">Arabic Interface</label><div class="toggle" id="tog-arabic"></div></div>
+            <div class="s-slider-row">
+              <div class="s-slider-label"><label data-i18n="transparency">Transparency (collapsed)</label><div class="hint" data-i18n="transparency_hint">Black bar opacity only; text & icon stay solid (0–100%)</div></div>
+              <input type="range" class="transparency-slider" id="slider-transparency" min="0" max="100" value="100" step="5">
+              <span class="transparency-value" id="transparency-value">100%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="s-page" id="page-gen">
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="gen_startup">Startup</div>
+            <div class="s-row"><label data-i18n="start_win">Start with Windows</label><div class="toggle" id="tog-autostart"></div></div>
+          </div>
+          <div class="s-group">
+            <div class="s-group-title" data-i18n="position">Position</div>
+            <div class="s-row">
+              <label data-i18n="corner">Corner</label>
+              <select class="s-select" id="in-corner">
+                <option value="bottom-left" data-i18n="corner_bl">Bottom Left</option>
+                <option value="bottom-right" data-i18n="corner_br">Bottom Right</option>
+                <option value="top-left" data-i18n="corner_tl">Top Left</option>
+                <option value="top-right" data-i18n="corner_tr">Top Right</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <audio id="adhan-audio" preload="none"></audio>
+  <audio id="alert-audio" preload="none"></audio>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // ===== STATE =====
+    let expanded = false;
+    let settingsOpen = false;
+    let cfg = {
+      location: { latitude: 24.1917, longitude: 55.7606, city: 'Al Ain', country: 'UAE', timezone: 'Asia/Dubai' },
+      method: 'Dubai', asrMethod: 'Standard',
+      adjustments: { fajr: 0, sunrise: 0, dhuhr: 0, asr: 0, maghrib: 0, isha: 0 },
+      notifications: { enabled: true, reminderMinutes: 10, elapsedMinutes: 30, adhanEnabled: true, adhanSound: 'makkah',
+        reminderSoundEnabled: true, reminderSound: 'chime', customReminderPath: null,
+        elapsedSoundEnabled: true, elapsedSound: 'bell', customElapsedPath: null },
+      appearance: { accentColor: '#d4a574', timeFormat: '24h', showSeconds: true, arabicUI: false, opacity: 100 }
+    };
+    let times = null;
+    let notified = new Set();
+    let customAdhan = null;
+    let customReminderPath = null;
+    let customElapsedPath = null;
+
+    const PRAYERS = [
+      { key: 'fajr', name: 'Fajr', ar: 'الفجر', icon: '🌅' },
+      { key: 'sunrise', name: 'Sunrise', ar: 'الشروق', icon: '☀️' },
+      { key: 'dhuhr', name: 'Dhuhr', ar: 'الظهر', icon: '🌞' },
+      { key: 'asr', name: 'Asr', ar: 'العصر', icon: '🌤️' },
+      { key: 'maghrib', name: 'Maghrib', ar: 'المغرب', icon: '🌇' },
+      { key: 'isha', name: 'Isha', ar: 'العشاء', icon: '🌙' }
+    ];
+    const METHODS = { MWL:{fajr:18,isha:17}, ISNA:{fajr:15,isha:15}, Egypt:{fajr:19.5,isha:17.5}, Makkah:{fajr:18.5,isha:0,ishaMin:90}, Karachi:{fajr:18,isha:18}, Dubai:{fajr:18.2,isha:18.2}, Kuwait:{fajr:18,isha:17.5}, Qatar:{fajr:18,isha:0,ishaMin:90}, Singapore:{fajr:20,isha:18}, Turkey:{fajr:18,isha:17} };
+    const ADHANS = [
+      { id:'makkah', name:'Makkah', url:'https://www.islamcan.com/audio/adhan/azan1.mp3' },
+      { id:'madina', name:'Madina', url:'https://www.islamcan.com/audio/adhan/azan2.mp3' },
+      { id:'alaqsa', name:'Al-Aqsa', url:'https://www.islamcan.com/audio/adhan/azan3.mp3' },
+      { id:'egypt', name:'Egypt', url:'https://www.islamcan.com/audio/adhan/azan4.mp3' },
+      { id:'short', name:'Short', url:'https://www.islamcan.com/audio/adhan/azan5.mp3' },
+      { id:'modern1', name:'Modern 1', url:'https://www.islamcan.com/audio/adhan/azan6.mp3' },
+      { id:'modern2', name:'Modern 2', url:'https://www.islamcan.com/audio/adhan/azan7.mp3' },
+      { id:'turkish', name:'Turkish', url:'https://www.islamcan.com/audio/adhan/azan8.mp3' },
+      { id:'morocco', name:'Morocco', url:'https://www.islamcan.com/audio/adhan/azan9.mp3' },
+      { id:'malaysia', name:'Malaysia', url:'https://www.islamcan.com/audio/adhan/azan10.mp3' },
+      { id:'saudi', name:'Saudi', url:'https://www.islamcan.com/audio/adhan/azan11.mp3' }
+    ];
+    const REMINDER_SOUNDS = [
+      { id:'chime', name:'Chime', url:'https://www.orangefreesounds.com/wp-content/uploads/2024/11/Notification-chime-sound-effect.mp3' },
+      { id:'bell', name:'Bell', url:'https://www.orangefreesounds.com/wp-content/uploads/2014/11/Bell-sound.mp3' },
+      { id:'beep', name:'Beep', url:'https://www.orangefreesounds.com/wp-content/uploads/2014/11/Beep-sound.mp3' }
+    ];
+    const COLORS = ['#d4a574','#e07a5f','#f4a261','#2a9d8f','#4a90d9','#7c3aed','#ec4899','#ef4444'];
+    const DAYS_EN = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const DAYS_AR = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+    const HIJRI_EN = ['Muharram','Safar',"Rabi' I","Rabi' II","Jumada I","Jumada II",'Rajab',"Sha'ban",'Ramadan','Shawwal',"Dhul Qi'dah","Dhul Hijjah"];
+    const HIJRI_AR = ['محرم','صفر','ربيع الأول','ربيع الثاني','جمادى الأولى','جمادى الثانية','رجب','شعبان','رمضان','شوال','ذو القعدة','ذو الحجة'];
+
+    const STRINGS = {
+      en: {
+        settings_title: 'Settings', nav_loc: '📍 Location', nav_calc: '🧮 Calculation', nav_notif: '🔔 Notifications', nav_look: '🎨 Appearance', nav_gen: '⚙ General',
+        loc_hint: 'On Windows: enable Location services and Let desktop apps access your location in Settings → Privacy & security → Location for GPS. Otherwise IP-based location is used.',
+        detect_btn: 'Detect My Location', manual_entry: 'Manual Entry', city: 'City', country: 'Country', lat: 'Latitude', lng: 'Longitude', tz: 'Timezone',
+        calc_method: 'Method', calc_method_label: 'Calculation Method', calc_method_hint: 'Based on your region', asr_label: 'Asr Calculation', asr_hint: 'Juristic method',
+        time_adj: 'Time Adjustments (± minutes)', method_mwl: 'Muslim World League', method_isna: 'ISNA', method_egypt: 'Egyptian', method_makkah: 'Umm al-Qura',
+        method_karachi: 'Karachi', method_dubai: 'Dubai (UAE)', method_kuwait: 'Kuwait', method_qatar: 'Qatar', method_singapore: 'Singapore', method_turkey: 'Turkey',
+        asr_standard: "Standard (Shafi'i)", asr_hanafi: 'Hanafi',
+        notif_alerts: 'Alerts', enable_notif: 'Enable Notifications', reminder_before: 'Reminder Before', reminder_hint: 'Minutes before prayer',
+        show_elapsed: 'Show Elapsed', elapsed_hint: 'Minutes to show elapsed time',
+        reminder_sound: 'Reminder Sound (close to prayer)', reminder_sound_enable: 'Play sound when reminder fires', reminder_sound_pick: 'Sound',
+        elapsed_sound: 'Elapsed Sound (after prayer time)', elapsed_sound_enable: 'Play sound when elapsed reminder fires', elapsed_sound_pick: 'Sound',
+        sound_none: 'None', adhan_sound: 'Adhan Sound', play_adhan: 'Play Adhan at Prayer Time',
+        choose_adhan: 'Choose Custom Audio', preview_btn: 'Preview', adhan_custom: 'Custom', stop_adhan: 'Stop',
+        look_theme: 'Theme', accent_color: 'Accent Color', display: 'Display', format_24h: '24-Hour Format', show_sec: 'Show Seconds', arabic_ui: 'Arabic Interface',
+        transparency: 'Transparency (collapsed)', transparency_hint: 'Black bar opacity only; text & icon stay solid (0–100%)',
+        gen_startup: 'Startup', start_win: 'Start with Windows', position: 'Position', corner: 'Corner',
+        corner_bl: 'Bottom Left', corner_br: 'Bottom Right', corner_tl: 'Top Left', corner_tr: 'Top Right',
+        detecting: 'Detecting...', found_ip: 'Found (IP)', found_gps: 'Found (GPS)', failed: 'Failed',
+        elapsed_notif: 'Prayer time elapsed'
+      },
+      ar: {
+        settings_title: 'الإعدادات', nav_loc: '📍 الموقع', nav_calc: '🧮 الحساب', nav_notif: '🔔 الإشعارات', nav_look: '🎨 المظهر', nav_gen: '⚙ عام',
+        loc_hint: 'في Windows: فعّل خدمات الموقع واسمح لتطبيقات سطح المكتب بالوصول إلى موقعك من الإعدادات → الخصوصية والأمان → الموقع للـ GPS. وإلا يُستخدم الموقع عبر IP.',
+        detect_btn: 'اكتشف موقعي', manual_entry: 'إدخال يدوي', city: 'المدينة', country: 'الدولة', lat: 'خط العرض', lng: 'خط الطول', tz: 'المنطقة الزمنية',
+        calc_method: 'الطريقة', calc_method_label: 'طريقة الحساب', calc_method_hint: 'حسب منطقتك', asr_label: 'حساب العصر', asr_hint: 'المذهب الفقهي',
+        time_adj: 'تعديل الوقت (± دقائق)', method_mwl: 'رابطة العالم الإسلامي', method_isna: 'ISNA', method_egypt: 'المصري', method_makkah: 'أم القرى',
+        method_karachi: 'كراتشي', method_dubai: 'دبي (الإمارات)', method_kuwait: 'الكويت', method_qatar: 'قطر', method_singapore: 'سنغافورة', method_turkey: 'تركيا',
+        asr_standard: 'الشافعي', asr_hanafi: 'الحنفي',
+        notif_alerts: 'التنبيهات', enable_notif: 'تفعيل الإشعارات', reminder_before: 'تذكير قبل', reminder_hint: 'دقائق قبل الصلاة',
+        show_elapsed: 'عرض المنقضي', elapsed_hint: 'دقائق لعرض الوقت المنقضي',
+        reminder_sound: 'صوت التذكير (قرب وقت الصلاة)', reminder_sound_enable: 'تشغيل الصوت عند التذكير', reminder_sound_pick: 'الصوت',
+        elapsed_sound: 'صوت المنقضي (بعد وقت الصلاة)', elapsed_sound_enable: 'تشغيل الصوت عند انتهاء الوقت', elapsed_sound_pick: 'الصوت',
+        sound_none: 'بدون', adhan_sound: 'صوت الأذان', play_adhan: 'تشغيل الأذان عند وقت الصلاة',
+        choose_adhan: 'اختر مقطعاً مخصصاً', preview_btn: 'معاينة', adhan_custom: 'مخصص', stop_adhan: 'إيقاف',
+        look_theme: 'السمة', accent_color: 'لون التمييز', display: 'العرض', format_24h: 'تنسيق ٢٤ ساعة', show_sec: 'إظهار الثواني', arabic_ui: 'واجهة عربية',
+        transparency: 'الشفافية (مطوي)', transparency_hint: 'شفافية الشريط فقط؛ النص والأيقونة ثابتان (٠–١٠٠٪)',
+        gen_startup: 'بدء التشغيل', start_win: 'البدء مع Windows', position: 'الموضع', corner: 'الزاوية',
+        corner_bl: 'أسفل يسار', corner_br: 'أسفل يمين', corner_tl: 'أعلى يسار', corner_tr: 'أعلى يمين',
+        detecting: 'جاري الاكتشاف...', found_ip: 'تم (IP)', found_gps: 'تم (GPS)', failed: 'فشل',
+        elapsed_notif: 'انتهى وقت الصلاة'
+      }
+    };
+
+    function updateSettingsText() {
+      const ar = !!cfg.appearance.arabicUI;
+      const L = STRINGS[ar ? 'ar' : 'en'];
+      const S = document.getElementById('settings');
+      if (S) { S.dir = ar ? 'rtl' : 'ltr'; }
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        if (el.id === 'btn-detect' && (el.disabled || /Detecting|Found|Failed|جاري|تم|فشل/.test(el.textContent))) return;
+        const v = L[el.dataset.i18n]; if (v == null) return;
+        el.textContent = el.id === 'btn-detect' ? '📍 ' + v : el.id === 'btn-custom-adhan' ? '📁 ' + v : el.id === 'btn-stop-adhan' ? '⏹ ' + v : v;
+      });
+      buildAdj();
+      buildAdhan();
+    }
+
+    // ===== CALCULATIONS =====
+    const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI, fixAngle=a=>((a%360)+360)%360, fixHour=h=>((h%24)+24)%24;
+    function julianDay(d){let y=d.getFullYear(),m=d.getMonth()+1,day=d.getDate();if(m<=2){y--;m+=12;}return Math.floor(365.25*(y+4716))+Math.floor(30.6001*(m+1))+day+2-Math.floor(y/100)+Math.floor(y/400)-1524.5;}
+    function sunPos(jd){const D=jd-2451545,g=fixAngle(357.529+0.98560028*D),q=fixAngle(280.459+0.98564736*D),L=fixAngle(q+1.915*Math.sin(toRad(g))+0.02*Math.sin(toRad(2*g))),e=23.439-0.00000036*D,RA=toDeg(Math.atan2(Math.cos(toRad(e))*Math.sin(toRad(L)),Math.cos(toRad(L))))/15,dec=toDeg(Math.asin(Math.sin(toRad(e))*Math.sin(toRad(L))));return{dec,eqt:q/15-fixHour(RA)};}
+    function timeForAngle(angle,lat,dec,ccw){const cosHA=(-Math.sin(toRad(angle))-Math.sin(toRad(lat))*Math.sin(toRad(dec)))/(Math.cos(toRad(lat))*Math.cos(toRad(dec)));if(cosHA>1||cosHA<-1)return NaN;return ccw?-toDeg(Math.acos(cosHA))/15:toDeg(Math.acos(cosHA))/15;}
+    function tzOffset(tz){try{const n=new Date();return(new Date(n.toLocaleString('en-US',{timeZone:tz}))-new Date(n.toLocaleString('en-US',{timeZone:'UTC'})))/3600000;}catch{return new Date().getTimezoneOffset()/-60;}}
+
+    function calcTimes(date){
+      const{latitude:lat,longitude:lng,timezone:tz}=cfg.location;const tzOff=tzOffset(tz);const m=METHODS[cfg.method]||METHODS.Dubai;const adj=cfg.adjustments||{};
+      const jd=julianDay(date);const{dec,eqt}=sunPos(jd);const noon=12+tzOff-lng/15-eqt;
+      const fajrOff=timeForAngle(m.fajr,lat,dec,true);const sunriseOff=timeForAngle(0.833,lat,dec,true);const sunsetOff=timeForAngle(0.833,lat,dec,false);
+      const factor=cfg.asrMethod==='Hanafi'?2:1;const asrAngle=-toDeg(Math.atan(1/(factor+Math.tan(Math.abs(toRad(lat-dec))))));const asrOff=timeForAngle(asrAngle,lat,dec,false);
+      const ishaOff=m.ishaMin?sunsetOff+m.ishaMin/60:timeForAngle(m.isha,lat,dec,false);
+      const toDate=(off,adjMin=0)=>{const h=noon+off+(adjMin/60);const hr=Math.floor(h),min=Math.floor((h-hr)*60),sec=Math.floor(((h-hr)*60-min)*60);const r=new Date(date);r.setHours(hr,min,sec,0);return r;};
+      return{fajr:toDate(fajrOff,adj.fajr||0),sunrise:toDate(sunriseOff,adj.sunrise||0),dhuhr:toDate(1/60,adj.dhuhr||0),asr:toDate(asrOff,adj.asr||0),maghrib:toDate(sunsetOff,adj.maghrib||0),isha:toDate(ishaOff,adj.isha||0)};
+    }
+
+    function toHijri(d){const jd=julianDay(d);const l=Math.floor(jd-1948439.5)+10632;const n=Math.floor((l-1)/10631);const l2=l-10631*n+354;const j=Math.floor((10985-l2)/5316)*Math.floor((50*l2)/17719)+Math.floor(l2/5670)*Math.floor((43*l2)/15238);const l3=l2-Math.floor((30-j)/15)*Math.floor((17719*j)/50)-Math.floor(j/16)*Math.floor((15238*j)/43)+29;const month=Math.floor((24*l3)/709);const day=l3-Math.floor((709*month)/24);const year=30*n+j-30;const idx=Math.max(0,Math.min(11,month-1));return{day,year,en:HIJRI_EN[idx],ar:HIJRI_AR[idx]};}
+
+    const fmtTime=d=>d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:cfg.appearance.timeFormat!=='24h'});
+    const fmtCountdown=ms=>{const h=Math.floor(ms/3600000),m=Math.floor((ms%3600000)/60000),s=Math.floor((ms%60000)/1000);const p=n=>n.toString().padStart(2,'0');return cfg.appearance.showSeconds?`${p(h)}:${p(m)}:${p(s)}`:`${p(h)}:${p(m)}`;};
+
+    function getStates(){
+      const now=new Date();const elapsedMs=(cfg.notifications.elapsedMinutes||30)*60000;const reminderMs=(cfg.notifications.reminderMinutes||10)*60000;const urgentMs=elapsedMs*0.66;
+      const states={};let nextP=null;const keys=['fajr','sunrise','dhuhr','asr','maghrib','isha'];
+      for(let i=0;i<keys.length;i++){const k=keys[i],t=times[k],diff=now-t;
+        if(diff<-reminderMs){states[k]={state:'future'};if(!nextP)nextP=k;}
+        else if(diff<0){states[k]={state:'near'};if(!nextP)nextP=k;}
+        else if(diff<elapsedMs){states[k]={state:diff>urgentMs?'urgent':'entered',elapsed:Math.floor(diff/1000)};if(!nextP&&i<keys.length-1)nextP=keys[i+1];}
+        else{states[k]={state:'passed'};}}
+      if(!nextP)nextP='fajr';return{states,nextP};
+    }
+
+    // ===== UI =====
+    function updateUI(){
+      if(!times||settingsOpen)return;
+      const ar=cfg.appearance.arabicUI;const now=new Date();const{states,nextP}=getStates();
+      const nextInfo=PRAYERS.find(p=>p.key===nextP);const nextTime=times[nextP];let remain=nextTime-now;if(remain<0)remain+=86400000;
+      const activeK=Object.keys(states).find(k=>states[k].state==='entered'||states[k].state==='urgent');
+      const activeP=activeK?PRAYERS.find(p=>p.key===activeK):null;const activeS=activeK?states[activeK]:null;
+
+      // Compact
+      const c=document.getElementById('compact');
+      c.classList.remove('entered','urgent');
+      c.classList.toggle('with-panel',expanded);
+      const opacity=cfg.appearance.opacity!=null?cfg.appearance.opacity:100;
+      const alpha=opacity/100;
+      if(!expanded&&!activeS){c.style.background=`rgba(20,20,22,${alpha})`;c.style.backdropFilter='blur(10px)';}
+      else{c.style.background='';c.style.backdropFilter='';}
+      if(activeS){c.classList.add(activeS.state);document.getElementById('c-name').textContent=ar?activeP.ar:activeP.name;document.getElementById('c-name-ar').textContent=ar?'':activeP.ar;document.getElementById('c-time').textContent=fmtTime(times[activeK]);document.getElementById('c-label').textContent=ar?'منذ':'AFTER';document.getElementById('c-timer').textContent='+'+fmtCountdown(activeS.elapsed*1000);}
+      else{document.getElementById('c-name').textContent=ar?nextInfo?.ar:nextInfo?.name;document.getElementById('c-name-ar').textContent=ar?'':nextInfo?.ar;document.getElementById('c-time').textContent=fmtTime(nextTime);document.getElementById('c-label').textContent=ar?'متبقي':'IN';document.getElementById('c-timer').textContent=fmtCountdown(remain);}
+      if(!settingsOpen){void c.offsetHeight;requestAnimationFrame(()=>{c.style.transform='translateZ(0.001px)';requestAnimationFrame(()=>{c.style.transform='';});});}
+
+      // Panel
+      document.getElementById('day-name').textContent=ar?DAYS_AR[now.getDay()]:DAYS_EN[now.getDay()];
+      const h=toHijri(now);document.getElementById('hijri-date').textContent=`${h.day} ${ar?h.ar:h.en} ${h.year}`;
+      document.getElementById('location').textContent=`${cfg.location.city}, ${cfg.location.country}`;
+
+      // Prayer list
+      document.getElementById('prayer-list').innerHTML=PRAYERS.map(p=>{const st=states[p.key];const cls=st?.state||'future';const isNext=p.key===nextP&&cls==='future';const elapsed=st?.elapsed;let icon=cls==='passed'?'✓':(cls==='entered'||cls==='urgent')?'→':cls==='near'?'⏰':p.icon;
+        return`<div class="prayer-row ${cls} ${isNext?'next':''}"><div class="pr-icon">${icon}</div><div class="pr-info"><div class="pr-name">${ar?p.ar:p.name}</div>${!ar?`<div class="pr-name-ar arabic">${p.ar}</div>`:''}</div><div style="text-align:right"><div class="pr-time">${fmtTime(times[p.key])}</div>${elapsed!==undefined?`<div class="pr-elapsed">+${fmtCountdown(elapsed*1000)}</div>`:''}</div></div>`;}).join('');
+
+      handleNotif(states,nextP,remain);
+    }
+
+    function handleNotif(states,nextP,remain){
+      if(!cfg.notifications.enabled)return;const today=new Date().toDateString();const now=new Date();const reminderMs=cfg.notifications.reminderMinutes*60000;const elapsedMs=(cfg.notifications.elapsedMinutes||30)*60000;const info=PRAYERS.find(p=>p.key===nextP);
+      if(remain<=reminderMs&&remain>reminderMs-1000){const k=`rem-${nextP}-${today}`;if(!notified.has(k)){notified.add(k);new Notification(`${info?.name} in ${cfg.notifications.reminderMinutes} min`);playReminderSound();}}
+      if(remain<=1000&&remain>0){const k=`adh-${nextP}-${today}`;if(!notified.has(k)){notified.add(k);new Notification(`${info?.name} Time`);if(cfg.notifications.adhanEnabled&&nextP!=='sunrise')playAdhan();}}
+      if(remain<=0&&remain>-60000){const idx=PRAYERS.findIndex(p=>p.key===nextP);const justEntered=idx>0?PRAYERS[idx-1]:PRAYERS[PRAYERS.length-1];const k=`adh-${justEntered.key}-${today}`;if(!notified.has(k)){notified.add(k);new Notification(`${justEntered.name} Time`);if(cfg.notifications.adhanEnabled&&justEntered.key!=='sunrise')playAdhan();}}
+      for(const pk of['fajr','sunrise','dhuhr','asr','maghrib','isha']){const st=states[pk];if(!st||(st.state!=='entered'&&st.state!=='urgent'))continue;const diff=now-times[pk].getTime();if(diff>=elapsedMs&&diff<elapsedMs+1000){const k=`elapsed-${pk}-${today}`;if(!notified.has(k)){notified.add(k);const p=PRAYERS.find(x=>x.key===pk);new Notification(`${p?.name || pk} — ${STRINGS[cfg.appearance.arabicUI?'ar':'en'].elapsed_notif}`);playElapsedSound();}break;}}
+    }
+
+    function playAdhan(){const a=document.getElementById('adhan-audio');let src=customAdhan||(ADHANS.find(x=>x.id===cfg.notifications.adhanSound)||ADHANS[0]).url;if(customAdhan&&src&&!/^https?:\/\//.test(src)){src='file:///'+src.replace(/\\/g,'/');}a.crossOrigin='anonymous';a.volume=1;a.src=src;a.load();a.play().catch(e=>console.warn('Adhan play failed:',e));}
+    function stopAdhan(){const a=document.getElementById('adhan-audio');a.pause();a.currentTime=0;}
+    function playReminderSound(){const n=cfg.notifications;if(!n.reminderSoundEnabled||n.reminderSound==='none')return;const a=document.getElementById('alert-audio');let src=customReminderPath||(REMINDER_SOUNDS.find(x=>x.id===n.reminderSound)||REMINDER_SOUNDS[0])?.url;if(customReminderPath&&src&&!/^https?:\/\//.test(src))src='file:///'+src.replace(/\\/g,'/');if(!src)return;a.volume=1;a.src=src;a.load();a.play().catch(()=>{});}
+    function playElapsedSound(){const n=cfg.notifications;if(!n.elapsedSoundEnabled||n.elapsedSound==='none')return;const a=document.getElementById('alert-audio');let src=customElapsedPath||(REMINDER_SOUNDS.find(x=>x.id===n.elapsedSound)||REMINDER_SOUNDS[1])?.url;if(customElapsedPath&&src&&!/^https?:\/\//.test(src))src='file:///'+src.replace(/\\/g,'/');if(!src)return;a.volume=1;a.src=src;a.load();a.play().catch(()=>{});}
+
+    function setExpanded(exp){expanded=exp;document.getElementById('panel').classList.toggle('active',exp);document.getElementById('compact').classList.toggle('with-panel',exp);}
+
+    function showSettings(){settingsOpen=true;document.getElementById('panel').classList.remove('active');document.getElementById('compact').classList.add('hidden');document.getElementById('settings').classList.add('active');updateSettingsText();ipcRenderer.send('open-settings');}
+    function hideSettings(){settingsOpen=false;document.getElementById('settings').classList.remove('active');document.getElementById('compact').classList.remove('hidden');if(expanded)document.getElementById('panel').classList.add('active');ipcRenderer.send('close-settings');save();updateUI();}
+
+    const NOMINATIM_OPTS={headers:{'Accept-Language':'en','User-Agent':'SalaatWidget/1.0 (Prayer times)'}};
+    async function detectLoc(){const btn=document.getElementById('btn-detect');const L=STRINGS[cfg.appearance.arabicUI?'ar':'en'];btn.textContent='⏳ '+L.detecting;btn.disabled=true;
+      try{
+        let gotIp=false;
+        const ipRes=await fetch('https://ipapi.co/json/');
+        if(ipRes.ok){const ip=await ipRes.json();if(ip.latitude!=null&&ip.longitude!=null){cfg.location={latitude:ip.latitude,longitude:ip.longitude,city:ip.city||ip.region||'Unknown',country:ip.country_name||'Unknown',timezone:ip.timezone||Intl.DateTimeFormat().resolvedOptions().timeZone};updateLocInputs();recalc();gotIp=true;}}
+        if(navigator.geolocation){try{
+          const pos=await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(res,rej,{timeout:20000,enableHighAccuracy:false,maxAge:300000}));
+          const lat=Math.round(pos.coords.latitude*10000)/10000,lng=Math.round(pos.coords.longitude*10000)/10000;
+          cfg.location.latitude=lat;cfg.location.longitude=lng;
+          const geoRes=await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,NOMINATIM_OPTS);
+          const geo=await geoRes.json();
+          const addr=geo.address||{};
+          cfg.location.city=addr.city||addr.town||addr.village||addr.municipality||addr.county||cfg.location.city||'Unknown';
+          cfg.location.country=addr.country||cfg.location.country||'Unknown';
+          cfg.location.timezone=Intl.DateTimeFormat().resolvedOptions().timeZone;
+          updateLocInputs();recalc();btn.textContent='✓ '+L.found_gps;resetDetectBtn(btn);return;
+        }catch(e){console.warn('Geolocation failed',e);}}
+        if(gotIp){btn.textContent='✓ '+L.found_ip;resetDetectBtn(btn);return;}
+        throw new Error('No location');
+      }catch(e){console.warn('Detect location failed',e);btn.textContent='✗ '+L.failed;}
+      resetDetectBtn(btn);
+    }
+    function resetDetectBtn(btn){setTimeout(()=>{const L=STRINGS[cfg.appearance.arabicUI?'ar':'en'];btn.textContent='📍 '+L.detect_btn;btn.disabled=false;},2000);}
+
+    function updateLocInputs(){document.getElementById('in-city').value=cfg.location.city;document.getElementById('in-country').value=cfg.location.country;document.getElementById('in-lat').value=cfg.location.latitude;document.getElementById('in-lng').value=cfg.location.longitude;document.getElementById('in-tz').value=cfg.location.timezone;}
+    function recalc(){times=calcTimes(new Date());updateUI();save();}
+    function save(){ipcRenderer.send('save-widget-settings',cfg);}
+
+    function buildAdj(){const ar=!!cfg.appearance.arabicUI;const c=document.getElementById('adj-container');c.innerHTML=PRAYERS.filter(p=>p.key!=='sunrise').map(p=>{const v=cfg.adjustments[p.key]||0;const name=ar?p.ar:p.name;return`<div class="s-row"><label>${name}</label><div class="adj-ctrl"><button class="adj-btn" data-p="${p.key}" data-d="-1">−</button><span class="adj-val" id="adj-${p.key}">${v>=0?'+':''}${v}</span><button class="adj-btn" data-p="${p.key}" data-d="1">+</button></div></div>`;}).join('');
+      c.querySelectorAll('.adj-btn').forEach(b=>b.onclick=()=>{const k=b.dataset.p,d=parseInt(b.dataset.d);cfg.adjustments[k]=(cfg.adjustments[k]||0)+d;document.getElementById('adj-'+k).textContent=(cfg.adjustments[k]>=0?'+':'')+cfg.adjustments[k];recalc();});
+    }
+
+    function buildAdhan(){const ar=!!cfg.appearance.arabicUI;const L=STRINGS[ar?'ar':'en'];const prev=L.preview_btn,cust=L.adhan_custom;const c=document.getElementById('adhan-list');c.innerHTML=ADHANS.map(a=>`<div class="adhan-row"><input type="radio" name="adhan" value="${a.id}" ${cfg.notifications.adhanSound===a.id?'checked':''}><span>${a.name}</span><button class="adhan-preview" data-url="${a.url}">▶ ${prev}</button></div>`).join('')+`<div class="adhan-row"><input type="radio" name="adhan" value="custom" ${cfg.notifications.adhanSound==='custom'?'checked':''}><span>${cust}</span></div>`;
+      c.querySelectorAll('input[name="adhan"]').forEach(r=>r.onchange=()=>{cfg.notifications.adhanSound=r.value;save();});
+      c.querySelectorAll('.adhan-preview').forEach(b=>b.onclick=()=>{const a=document.getElementById('adhan-audio');a.src=b.dataset.url;a.play().catch(()=>{});setTimeout(()=>a.pause(),8000);});
+    }
+
+    function buildColors(){const c=document.getElementById('color-grid');c.innerHTML='';COLORS.forEach(col=>{const b=document.createElement('button');b.className='color-opt'+(col===cfg.appearance.accentColor?' sel':'');b.style.background=col;b.onclick=()=>{cfg.appearance.accentColor=col;document.documentElement.style.setProperty('--accent',col);c.querySelectorAll('.color-opt').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');save();};c.appendChild(b);});}
+
+    // ===== EVENT HANDLERS =====
+    document.addEventListener('DOMContentLoaded',()=>{
+      // Bar: drag anywhere to move; click (no drag) to expand. Clean up on blur only (focus cleanup broke clicks).
+      (function(){
+        let dragStart=null;
+        let moveRaf=null;
+        let latestMove=null;
+        const CLICK_THRESHOLD=5;
+        function flushMove(){moveRaf=null;if(!latestMove||!dragStart)return;ipcRenderer.send('move-window',latestMove);latestMove=null;}
+        const onMove=e=>{
+          if(!dragStart||!(e.buttons&1))return;
+          if(Math.hypot(e.screenX-dragStart.startX,e.screenY-dragStart.startY)>CLICK_THRESHOLD)dragStart.moved=true;
+          latestMove={screenX:e.screenX,screenY:e.screenY};
+          if(moveRaf==null)moveRaf=requestAnimationFrame(flushMove);
+        };
+        const onUp=e=>{if(!dragStart||e.button!==0)return;const wasClick=!dragStart.moved&&!expanded;if(moveRaf!=null){cancelAnimationFrame(moveRaf);moveRaf=null;flushMove();}cleanup();if(wasClick)ipcRenderer.send('toggle-expand');};
+        const onBlur=()=>{cleanup();};
+        function cleanup(){
+          if(moveRaf!=null){cancelAnimationFrame(moveRaf);moveRaf=null;}latestMove=null;
+          document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp);window.removeEventListener('blur',onBlur);
+          ipcRenderer.send('drag-end');dragStart=null;
+        }
+        document.getElementById('click-zone').onmousedown=e=>{if(e.button!==0)return;cleanup();dragStart={startX:e.screenX,startY:e.screenY,moved:false};ipcRenderer.send('drag-start',{screenX:e.screenX,screenY:e.screenY});document.addEventListener('mousemove',onMove);document.addEventListener('mouseup',onUp);window.addEventListener('blur',onBlur);};
+      })();
+
+      // Panel buttons
+      document.getElementById('btn-lang').onclick=()=>{cfg.appearance.arabicUI=!cfg.appearance.arabicUI;document.getElementById('tog-arabic').classList.toggle('on',cfg.appearance.arabicUI);updateUI();save();};
+      document.getElementById('btn-settings').onclick=showSettings;
+      document.getElementById('btn-hide').onclick=()=>{if(expanded)ipcRenderer.send('toggle-expand');else ipcRenderer.send('close-app');};
+      document.getElementById('s-close').onclick=hideSettings;
+
+      // Settings nav
+      document.querySelectorAll('.s-nav-btn').forEach(b=>b.onclick=()=>{document.querySelectorAll('.s-nav-btn').forEach(x=>x.classList.remove('active'));document.querySelectorAll('.s-page').forEach(x=>x.classList.remove('active'));b.classList.add('active');document.getElementById('page-'+b.dataset.page).classList.add('active');});
+
+      // Detect location
+      document.getElementById('btn-detect').onclick=detectLoc;
+
+      // Custom adhan
+      document.getElementById('btn-custom-adhan').onclick=()=>ipcRenderer.send('select-adhan-file');
+
+      // Stop adhan (compact bar + audio events)
+      (function(){
+        const a=document.getElementById('adhan-audio');
+        const btn=document.getElementById('btn-stop-adhan');
+        if(!a||!btn)return;
+        const showStop=()=>btn.classList.toggle('visible',!a.paused);
+        a.addEventListener('play',showStop);
+        a.addEventListener('pause',showStop);
+        a.addEventListener('ended',showStop);
+        btn.onclick=e=>{e.stopPropagation();stopAdhan();showStop();};
+      })();
+
+      // Reminder & elapsed sounds
+      function syncReminderElapsedUI(){
+        const n=cfg.notifications;
+        document.getElementById('tog-reminder-sound').classList.toggle('on',n.reminderSoundEnabled!==false);
+        document.getElementById('tog-elapsed-sound').classList.toggle('on',n.elapsedSoundEnabled!==false);
+        document.getElementById('in-reminder-sound').value=n.reminderSound||'chime';
+        document.getElementById('in-elapsed-sound').value=n.elapsedSound||'bell';
+        document.getElementById('btn-custom-reminder').style.display=(n.reminderSound==='custom')?'inline-block':'none';
+        document.getElementById('btn-custom-elapsed').style.display=(n.elapsedSound==='custom')?'inline-block':'none';
+      }
+      document.getElementById('tog-reminder-sound').onclick=function(){cfg.notifications.reminderSoundEnabled=!cfg.notifications.reminderSoundEnabled;this.classList.toggle('on',cfg.notifications.reminderSoundEnabled);save();};
+      document.getElementById('tog-elapsed-sound').onclick=function(){cfg.notifications.elapsedSoundEnabled=!cfg.notifications.elapsedSoundEnabled;this.classList.toggle('on',cfg.notifications.elapsedSoundEnabled);save();};
+      document.getElementById('in-reminder-sound').onchange=function(){cfg.notifications.reminderSound=this.value;document.getElementById('btn-custom-reminder').style.display=(this.value==='custom')?'inline-block':'none';save();};
+      document.getElementById('in-elapsed-sound').onchange=function(){cfg.notifications.elapsedSound=this.value;document.getElementById('btn-custom-elapsed').style.display=(this.value==='custom')?'inline-block':'none';save();};
+      document.getElementById('btn-custom-reminder').onclick=()=>ipcRenderer.send('select-reminder-file');
+      document.getElementById('btn-custom-elapsed').onclick=()=>ipcRenderer.send('select-elapsed-file');
+
+      // Toggles
+      const togs={
+        'tog-notif':()=>{cfg.notifications.enabled=!cfg.notifications.enabled;return cfg.notifications.enabled;},
+        'tog-adhan':()=>{cfg.notifications.adhanEnabled=!cfg.notifications.adhanEnabled;return cfg.notifications.adhanEnabled;},
+        'tog-24h':()=>{cfg.appearance.timeFormat=cfg.appearance.timeFormat==='24h'?'12h':'24h';return cfg.appearance.timeFormat==='24h';},
+        'tog-sec':()=>{cfg.appearance.showSeconds=!cfg.appearance.showSeconds;return cfg.appearance.showSeconds;},
+        'tog-arabic':()=>{cfg.appearance.arabicUI=!cfg.appearance.arabicUI;return cfg.appearance.arabicUI;},
+        'tog-autostart':()=>{const e=!document.getElementById('tog-autostart').classList.contains('on');ipcRenderer.send('set-auto-start',e);return e;}
+      };
+      Object.keys(togs).forEach(id=>{document.getElementById(id).onclick=function(){const r=togs[id]();this.classList.toggle('on',r);save();if(id==='tog-arabic')updateSettingsText();};});
+
+      // Inputs
+      document.getElementById('in-city').onchange=function(){cfg.location.city=this.value;recalc();};
+      document.getElementById('in-country').onchange=function(){cfg.location.country=this.value;recalc();};
+      document.getElementById('in-lat').onchange=function(){cfg.location.latitude=parseFloat(this.value);recalc();};
+      document.getElementById('in-lng').onchange=function(){cfg.location.longitude=parseFloat(this.value);recalc();};
+      document.getElementById('in-tz').onchange=function(){cfg.location.timezone=this.value;recalc();};
+      document.getElementById('in-method').onchange=function(){cfg.method=this.value;recalc();};
+      document.getElementById('in-asr').onchange=function(){cfg.asrMethod=this.value;recalc();};
+      document.getElementById('in-reminder').onchange=function(){cfg.notifications.reminderMinutes=parseInt(this.value);save();};
+      document.getElementById('in-elapsed').onchange=function(){cfg.notifications.elapsedMinutes=parseInt(this.value);save();};
+      document.getElementById('in-corner').onchange=function(){ipcRenderer.send('snap-corner',this.value);};
+
+      const sliderTrans=document.getElementById('slider-transparency');
+      const updateTransparencyUI=()=>{const v=parseInt(sliderTrans.value);cfg.appearance.opacity=v;document.getElementById('transparency-value').textContent=v+'%';const c=document.getElementById('compact');if(!c.classList.contains('with-panel')&&!c.classList.contains('entered')&&!c.classList.contains('urgent')){c.style.background=`rgba(20,20,22,${v/100})`;c.style.backdropFilter='blur(10px)';}else{c.style.background='';c.style.backdropFilter='';}};
+      sliderTrans.oninput=updateTransparencyUI;
+      sliderTrans.onchange=()=>{updateTransparencyUI();save();};
+
+      buildAdj();buildAdhan();buildColors();syncReminderElapsedUI();
+    });
+
+    // IPC handlers
+    ipcRenderer.on('expanded-changed',(e,exp)=>setExpanded(exp));
+    ipcRenderer.on('settings-opened',()=>{});
+    ipcRenderer.on('settings-closed',()=>{});
+    ipcRenderer.on('adhan-file-selected',(e,path)=>{customAdhan=path;cfg.notifications.adhanSound='custom';const r=document.querySelector('input[name="adhan"][value="custom"]');if(r)r.checked=true;save();});
+    ipcRenderer.on('reminder-file-selected',(e,path)=>{customReminderPath=path;cfg.notifications.customReminderPath=path;cfg.notifications.reminderSound='custom';document.getElementById('in-reminder-sound').value='custom';document.getElementById('btn-custom-reminder').style.display='inline-block';save();});
+    ipcRenderer.on('elapsed-file-selected',(e,path)=>{customElapsedPath=path;cfg.notifications.customElapsedPath=path;cfg.notifications.elapsedSound='custom';document.getElementById('in-elapsed-sound').value='custom';document.getElementById('btn-custom-elapsed').style.display='inline-block';save();});
+    ipcRenderer.on('stop-adhan',()=>{stopAdhan();document.getElementById('btn-stop-adhan')?.classList.remove('visible');});
+    ipcRenderer.on('init-state',(e,data)=>{
+      if(data.widgetSettings&&Object.keys(data.widgetSettings).length>0){cfg={...cfg,...data.widgetSettings};if(!cfg.adjustments)cfg.adjustments={};}
+      if(cfg.notifications){customReminderPath=cfg.notifications.customReminderPath||null;customElapsedPath=cfg.notifications.customElapsedPath||null;}
+      const sync=document.getElementById('in-reminder-sound');if(sync){const n=cfg.notifications;document.getElementById('tog-reminder-sound').classList.toggle('on',n.reminderSoundEnabled!==false);document.getElementById('tog-elapsed-sound').classList.toggle('on',n.elapsedSoundEnabled!==false);sync.value=n.reminderSound||'chime';document.getElementById('in-elapsed-sound').value=n.elapsedSound||'bell';document.getElementById('btn-custom-reminder').style.display=(n.reminderSound==='custom')?'inline-block':'none';document.getElementById('btn-custom-elapsed').style.display=(n.elapsedSound==='custom')?'inline-block':'none';}
+      setExpanded(data.isExpanded);
+      document.documentElement.style.setProperty('--accent',cfg.appearance.accentColor);
+      updateLocInputs();
+      document.getElementById('in-method').value=cfg.method;
+      document.getElementById('in-asr').value=cfg.asrMethod;
+      document.getElementById('in-reminder').value=cfg.notifications.reminderMinutes;
+      document.getElementById('in-elapsed').value=cfg.notifications.elapsedMinutes||30;
+      document.getElementById('in-corner').value=data.corner||'bottom-left';
+      document.getElementById('tog-notif').classList.toggle('on',cfg.notifications.enabled);
+      document.getElementById('tog-adhan').classList.toggle('on',cfg.notifications.adhanEnabled);
+      document.getElementById('tog-24h').classList.toggle('on',cfg.appearance.timeFormat==='24h');
+      document.getElementById('tog-sec').classList.toggle('on',cfg.appearance.showSeconds);
+      document.getElementById('tog-arabic').classList.toggle('on',cfg.appearance.arabicUI);
+      const op = cfg.appearance.opacity != null ? cfg.appearance.opacity : 100;
+      document.getElementById('slider-transparency').value = op;
+      document.getElementById('transparency-value').textContent = op + '%';
+      document.documentElement.style.setProperty('--compact-bg-alpha', op / 100);
+      document.getElementById('tog-autostart').classList.toggle('on',data.autoStart);
+      updateSettingsText();buildColors();
+      times=calcTimes(new Date());updateUI();
+      const isDefaultLoc=cfg.location.city==='Al Ain'&&cfg.location.country==='UAE'&&cfg.location.latitude===24.1917;
+      if(isDefaultLoc)setTimeout(detectLoc,800);
+    });
+
+    // Init
+    times=calcTimes(new Date());
+    setInterval(()=>{const t=new Date().toDateString();if(!times||times.fajr.toDateString()!==t){times=calcTimes(new Date());notified.clear();}updateUI();},500);
+  </script>
+</body>
+</html>
